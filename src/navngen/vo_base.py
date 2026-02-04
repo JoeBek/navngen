@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Tuple
 
 
 class VO(ABC):
@@ -12,5 +13,5 @@ class VO(ABC):
         """Return area"""
     
     @abstractmethod
-    def get_pose(self, matches, features1, features2):
+    def get_pose(self, matches, features1, features2) -> Tuple:
         """Return pose"""

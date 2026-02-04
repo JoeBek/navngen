@@ -2,11 +2,13 @@ from vo_base import VO
 from dataclasses import dataclass, field
 from typing import List, Tuple
 import numpy as np
+from feature import FeatureSet
 
 @dataclass
 class State:
     curr: int = 1
     trajectories: List[Tuple[float]] = field(default_factory=list)
+    features: List[FeatureSet] = field(default_factory=list)
     
 
 
@@ -33,7 +35,8 @@ class Navngen():
         
         matches = self.vo.match(feats_last, feats_curr)
         
-        relative_pose = self.vo.get_pose(matches, feats_last, feats_curr)
+        R,t = self.vo.get_pose(matches, feats_last, feats_curr)
+        
         
         # unit direction vector
         
