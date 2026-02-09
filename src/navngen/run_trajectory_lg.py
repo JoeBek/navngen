@@ -95,6 +95,27 @@ def match_frames(frame0, frame1):
 
     return m_kpts0, m_kpts1
 
+def match_frames_debug(frame0, frame1):
+    # load extractor and matcher
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 'mps', 'cpu'
+
+    extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  # load the extractor
+    matcher = LightGlue(features="superpoint").eval().to(device)
+
+
+    feats0 = extractor.extract(frame0.to(device))
+    feats1 = extractor.extract(frame1.to(device))
+    matches01 = matcher({"image0": feats0, "image1": feats1})
+    feats0, feats1, matches01 = [
+        rbd(x) for x in [feats0, feats1, matches01]
+    ]  # remove batch dimension
+
+    kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
+    m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
+
+    return kpts0, kpts1, matches 
+
+
 
 def load_ground_truth_euroc(path: Path) -> pd.DataFrame:
     #timestamp, p_x, p_y, p_z, q_w, q_x, q_y, q_z, v_x, v_y, v_z, b_w_x, b_w_y, b_w_z, b_a_x, b_a_y, b_a_z
@@ -152,15 +173,8 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
     trajectories = {timestamps[0]: (r0, t0)}
     frames = {}
 
-    for timestamp, filename in tqdm(zip(timestamps, filenames), desc="Loading Images...", total=len(timestamps)):
-        try:
-            frame = load_image(img_path / filename)
-            frames[timestamp] = frame
-        except Exception as e:
-            import traceback, logging
-            logging.error("operation failed: %s", e)
-            traceback.print_exc()
-            exit()
+    for timestamp, filename in tqdm(zip(timestamps, filenames), desc="Storing Image Paths...", total=len(timestamps)):
+        frames[timestamp] = img_path / filename
 
     sorted_timestamps = sorted(frames.keys())
 
@@ -168,8 +182,18 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
         ts_last = sorted_timestamps[i-1]
         ts_curr = sorted_timestamps[i]
         
-        frame_last = frames[ts_last]
-        frame_curr = frames[ts_curr]
+        last_frame_path = frames[ts_last]
+        curr_frame_path = frames[ts_curr]
+
+        try:
+            frame_last = load_image(last_frame_path)
+            frame_curr = load_image(curr_frame_path)
+        except Exception as e:
+            import traceback, logging
+            logging.error(f"operation failed for euroc image loading: %s", e)
+            traceback.print_exc()
+            exit()
+
 
         mk_last, mk_curr = match_frames(frame_last, frame_curr)
         
@@ -187,7 +211,7 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
 
 
 def gen_trajectory_kitti(input_path: Path, solver: Solver):
-    img_path = input_path / 'image_0'
+    img_path = input_path / 'image_2'
     
     img_files = sorted(img_path.glob('*.png'))
     
@@ -210,15 +234,8 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
     trajectories = {timestamps[0]: (r0, t0)}
     frames = {}
 
-    for timestamp, filename in tqdm(zip(timestamps, img_files), desc="Loading Images...", total=len(timestamps)):
-        try:
-            frame = load_image(filename)
-            frames[timestamp] = frame
-        except Exception as e:
-            import traceback, logging
-            logging.error("operation failed: %s", e)
-            traceback.print_exc()
-            exit()
+    for timestamp, filename in tqdm(zip(timestamps, img_files), desc="Storing Image Paths...", total=len(timestamps)):
+        frames[timestamp] = filename
 
     sorted_timestamps = sorted(frames.keys())
 
@@ -226,8 +243,18 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
         ts_last = sorted_timestamps[i-1]
         ts_curr = sorted_timestamps[i]
         
-        frame_last = frames[ts_last]
-        frame_curr = frames[ts_curr]
+        last_frame_path = frames[ts_last]
+        curr_frame_path = frames[ts_curr]
+
+        try:
+            frame_last = load_image(last_frame_path)
+            frame_curr = load_image(curr_frame_path)
+        except Exception as e:
+            import traceback, logging
+            logging.error(f"operation failed for kitti image loading: %s", e)
+            traceback.print_exc()
+            exit()
+
 
         mk_last, mk_curr = match_frames(frame_last, frame_curr)
         
@@ -244,8 +271,8 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
     return trajectories
 
 
-if __name__ == "__main__":
-    
+def run_euroc_test():
+
     root = Path(__file__).resolve().parent.parent.parent / "assets" / "V2_01_easy" / "mav0"  
     input_path =  root / "data"
     config_path = root / "cam0" / "sensor.yaml"
@@ -260,4 +287,26 @@ if __name__ == "__main__":
     
     tum_traj = convert_euroc_to_tum(traj)
     export_trajectory_tum(tum_traj, write_path)
+ 
+
+def run_kitti_test():
+    root = Path(__file__).resolve().parent.parent.parent / "assets" / "01"
+    config_path = root / "calib.txt"
+
     
+    write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum.txt"
+    
+    solver = Solver(config_path, config_type="kitti")
+    traj = gen_trajectory_kitti(root, solver)
+
+    from export_trajectory import convert_euroc_to_tum, export_trajectory_tum
+    
+    tum_traj = convert_euroc_to_tum(traj)
+    export_trajectory_tum(tum_traj, write_path)
+ 
+
+
+if __name__ == "__main__":
+    
+
+    run_kitti_test()
