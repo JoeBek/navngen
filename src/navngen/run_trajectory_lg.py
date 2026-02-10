@@ -14,6 +14,8 @@ from load_images import load_image
 from tqdm import tqdm
 from lightglue import LightGlue, SuperPoint
 from lightglue.utils import rbd
+from frame import Frame
+from typing import Sequence
 import torch
 
 def parse_camera_euroc(path: Path) -> dict:
@@ -93,7 +95,7 @@ def match_frames(frame0, frame1):
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
-    return m_kpts0, m_kpts1
+    return  feats1, kpts1.cpu(), matches.cpu(), m_kpts0, m_kpts1
 
 def match_frames_debug(frame0, frame1):
     # load extractor and matcher
@@ -210,10 +212,13 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
     return trajectories
 
 
-def gen_trajectory_kitti(input_path: Path, solver: Solver):
+def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
     img_path = input_path / 'image_2'
     
     img_files = sorted(img_path.glob('*.png'))
+
+    output_frames = []
+
     
     with open(input_path / 'times.txt') as f:
         timestamps = [float(line) for line in f]
@@ -240,11 +245,15 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
     sorted_timestamps = sorted(frames.keys())
 
     for i in tqdm(range(1, len(sorted_timestamps)), desc="getting trajectory"):
+
+
         ts_last = sorted_timestamps[i-1]
         ts_curr = sorted_timestamps[i]
+
         
         last_frame_path = frames[ts_last]
         curr_frame_path = frames[ts_curr]
+
 
         try:
             frame_last = load_image(last_frame_path)
@@ -256,7 +265,9 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
             exit()
 
 
-        mk_last, mk_curr = match_frames(frame_last, frame_curr)
+        
+        feats , kpts_curr, matches, mk_last, mk_curr = match_frames(frame_last, frame_curr)
+    
         
         transform = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
         r = transform.R
@@ -265,10 +276,23 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver):
         rl, tl = trajectories[ts_last]
 
         rn, tn = compose_with_unit_direction(rl, tl, r, t)
+
+        output_frame = Frame(
+            kpts=kpts_curr.cpu(),
+            matches=matches.cpu(),
+            path=curr_frame_path,
+            essential_matrix=(r, t),
+            pose=(rn, tn),
+            features=feats,
+            timestamp=ts_curr
+        )
+        output_frames.append(output_frame)
+        
+
         
         trajectories[ts_curr] = (rn, tn)
         
-    return trajectories
+    return output_frames 
 
 
 def run_euroc_test():
@@ -290,19 +314,21 @@ def run_euroc_test():
  
 
 def run_kitti_test():
-    root = Path(__file__).resolve().parent.parent.parent / "assets" / "01"
+    root = Path(__file__).resolve().parent.parent.parent / "assets" / "sequences" / "01"
     config_path = root / "calib.txt"
 
     
     write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum.txt"
+    pickle_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_pickle.pkl.gz"
     
     solver = Solver(config_path, config_type="kitti")
     traj = gen_trajectory_kitti(root, solver)
 
-    from export_trajectory import convert_euroc_to_tum, export_trajectory_tum
+    from export_trajectory import convert_tum, export_trajectory_tum, export_frames
     
-    tum_traj = convert_euroc_to_tum(traj)
+    tum_traj = convert_tum(traj)
     export_trajectory_tum(tum_traj, write_path)
+    export_frames(traj,pickle_path)
  
 
 

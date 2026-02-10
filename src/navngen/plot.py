@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
-from load_trajecory import TrajectoryPoint, load_trajectory_from_txt
 import numpy as np
 from matplotlib.collections import LineCollection
+from .frame import Frame
+from typing import Sequence
 
 
-def plot_trajectory(trajectories,
+def plot_trajectory(trajectory:Sequence[Frame],
                     plane: str = "xz",
                     ax=None,
                     show: bool = True):
@@ -12,9 +13,7 @@ def plot_trajectory(trajectories,
     Plot bird's-eye view of trajectory translations.
 
     Accepts:
-      - list[TrajectoryPoint] (preferred), or
-      - list of (R, t) tuples where t is a 3-vector, or
-      - numpy array of shape (N,3)
+    - list of Frame objects. each frame has lots of information, as defined in frame.py
 
     - plane: which 2D plane to plot:
         'xz' (default) -> lateral (x) vs forward (z) top-down view,
@@ -26,23 +25,15 @@ def plot_trajectory(trajectories,
     Returns the Axes used.
     """
     # Extract translations into (N,3) numpy array
-    if isinstance(trajectories, np.ndarray):
-        ts = np.asarray(trajectories, dtype=float)
-        if ts.ndim == 1:
-            ts = ts.reshape(1, -1)
-    else:
-        ts_list = []
-        for item in trajectories:
-            if isinstance(item, TrajectoryPoint):
-                ts_list.append(np.asarray(item.position, dtype=float).reshape(3,))
-            elif isinstance(item, (list, tuple)) and len(item) == 2:
-                # assume (R, t)
-                t = item[1]
-                ts_list.append(np.asarray(t, dtype=float).reshape(3,))
-            else:
-                # try to interpret item as a 3-vector
-                ts_list.append(np.asarray(item, dtype=float).reshape(3,))
-        ts = np.array(ts_list, dtype=float)
+    ts_list = []
+    for frame_item in trajectory: # Renamed loop variable for clarity
+        if not isinstance(frame_item, Frame):
+            raise TypeError("All items in trajectory must be Frame objects when using this function signature.")
+        if frame_item.pose is None:
+            raise ValueError("Frame object must have a pose set to be plotted.")
+        t = frame_item.pose[1] # Extract translation from (R, t) tuple
+        ts_list.append(np.asarray(t, dtype=float).reshape(3,))
+    ts = np.array(ts_list, dtype=float)
 
     if ts.ndim != 2 or ts.shape[1] < 2:
         raise ValueError("translations must be 3-vectors")
@@ -101,10 +92,19 @@ def plot_trajectory(trajectories,
 
 
 if __name__ == '__main__':
-    # Example usage: Create a dummy trajectory file and load it
-    dummy_file_path = "/home/joe/nav_2/ORB_SLAM3/Examples/Monocular/CameraTrajectory.txt"
-    print(f"Loading trajectory from {dummy_file_path}...")
-    trajectory = load_trajectory_from_txt(dummy_file_path)
+    # Example usage: Create a dummy trajectory of Frame objects
+    dummy_trajectory = []
+    # Create some dummy Frame objects with poses
+    for i in range(10):
+        # Dummy rotation matrix (identity)
+        R = np.eye(3)
+        # Dummy translation vector
+        t = np.array([i * 0.1, np.sin(i * 0.5) * 0.2, i * 0.2])
+        dummy_frame = Frame(pose=(R, t))
+        dummy_trajectory.append(dummy_frame)
 
-    plot_trajectory(trajectory, plane='xy')
+    print("Plotting dummy trajectory of Frame objects...")
+    plot_trajectory(dummy_trajectory, plane='xy')
+    plt.title("Dummy Frame Trajectory (XY-plane)")
+    plt.show()
     

@@ -1,7 +1,20 @@
 
-from typing import Sequence
+from typing import Sequence, Optional, Tuple, TypeAlias
+import torch
+from pathlib import Path
+import numpy as np
+
+# ( R  t ) as numpy arrays. Might change to Tensor for consistency
+PoseType: TypeAlias = Tuple[np.ndarray, np.ndarray]
 
 class Frame:
+    features: Optional[dict]
+    kpts: Optional[torch.Tensor]
+    matches: Optional[torch.Tensor]
+    path: Optional[Path]
+    E: Optional[PoseType]
+    pose: Optional[PoseType]
+    timestamp: Optional[int]
     '''
     Docstring for Frame
 
@@ -11,9 +24,11 @@ class Frame:
     
 
     '''
-
     
-    def __init__(self, features=None, kpts=None, matches=None, path=None, essential_matrix=None, pose=None):
+    
+    def __init__(self, features:Optional[dict]=None, kpts:Optional[torch.Tensor]=None,
+                  matches:Optional[torch.Tensor]=None, path:Optional[Path]=None, 
+                  essential_matrix:Optional[PoseType]=None, pose:Optional[PoseType]=None, timestamp:Optional[int]=None):
 
         self.features = features
         self.kpts=kpts
@@ -21,24 +36,45 @@ class Frame:
         self.path=path
         self.E = essential_matrix
         self.pose = pose
+        self.timestamp =timestamp 
 
-    def get_features(self):
+    def get_features(self) -> dict:
+        if self.features is None:
+            raise RuntimeError("Features not set for this Frame.")
         return self.features
 
-    def get_kpts(self):
+    def get_kpts(self) -> torch.Tensor:
+        if self.kpts is None:
+            raise RuntimeError("Keypoints not set for this Frame.")
         return self.kpts
 
-    def get_matches(self):
+    def get_matches(self) -> torch.Tensor:
+        if self.matches is None:
+            raise RuntimeError("Matches not set for this Frame.")
         return self.matches
 
-    def get_path(self):
+    def get_path(self) -> Path:
+        if self.path is None:
+            raise RuntimeError("Path not set for this Frame.")
         return self.path
 
-    def get_essential_matrix(self):
+    def get_essential_matrix(self) -> PoseType:
+        if self.E is None:
+            raise RuntimeError("Essential matrix not set for this Frame.")
         return self.E
 
-    def get_pose(self):
+    def get_pose(self) -> PoseType:
+        if self.pose is None:
+            raise RuntimeError("Pose not set for this Frame.")
         return self.pose
+    
+    def get_timestamp(self) -> int:
+        if self.timestamp is None:
+            raise RuntimeError("Timestamp not set for this Frame.")
+        return self.timestamp
+
+    def set_timestamp(self, timestamp):
+        self.timestamp = timestamp
 
     def set_features(self, features):
         self.features = features
@@ -59,11 +95,4 @@ class Frame:
         self.pose = pose
 
 
-def get_frame_index_by_second(second:int, fps:int) -> int:
-
-    return second * fps
-
-    
-    
-        
         
