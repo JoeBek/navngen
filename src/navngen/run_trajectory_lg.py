@@ -145,10 +145,13 @@ class Solver():
 
 
         self.ransac_options = {
-            'max_error': 1.5,
+            'max_epipolar_error': 0.5,
             'min_inlier_ratio': 0.5,
             'confidence': 0.999,
-            'max_iterations': 1000
+            'max_iterations': 50000,
+            'min_iterations': 1000
+
+
         }
        
 
@@ -156,7 +159,7 @@ class Solver():
         
         pose, info = estimate_relative_pose(m_kpts1, m_kpts2, self.camera, self.camera, self.ransac_options)
 
-        return pose
+        return pose, info
  
 
 def gen_trajectory_euroc(input_path: Path, solver: Solver):
@@ -199,7 +202,7 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
 
         mk_last, mk_curr = match_frames(frame_last, frame_curr)
         
-        transform = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
+        transform, info = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
         r = transform.R
         t = transform.t
         
@@ -269,7 +272,7 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
         feats , kpts_curr, matches, mk_last, mk_curr = match_frames(frame_last, frame_curr)
     
         
-        transform = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
+        transform, info = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
         r = transform.R
         t = transform.t
         
@@ -284,7 +287,8 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
             essential_matrix=(r, t),
             pose=(rn, tn),
             features=feats,
-            timestamp=ts_curr
+            timestamp=ts_curr,
+            info=info
         )
         output_frames.append(output_frame)
         
@@ -318,8 +322,8 @@ def run_kitti_test():
     config_path = root / "calib.txt"
 
     
-    write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum.txt"
-    pickle_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_pickle.pkl.gz"
+    write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum_ransac.txt"
+    pickle_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_pickle_ransac.pkl.gz"
     
     solver = Solver(config_path, config_type="kitti")
     traj = gen_trajectory_kitti(root, solver)

@@ -15,6 +15,7 @@ class Frame:
     E: Optional[PoseType]
     pose: Optional[PoseType]
     timestamp: Optional[int]
+    info: Optional[dict]
     '''
     Docstring for Frame
 
@@ -28,7 +29,7 @@ class Frame:
     
     def __init__(self, features:Optional[dict]=None, kpts:Optional[torch.Tensor]=None,
                   matches:Optional[torch.Tensor]=None, path:Optional[Path]=None, 
-                  essential_matrix:Optional[PoseType]=None, pose:Optional[PoseType]=None, timestamp:Optional[int]=None):
+                  essential_matrix:Optional[PoseType]=None, pose:Optional[PoseType]=None, timestamp:Optional[int]=None, info:Optional[dict]=None):
 
         self.features = features
         self.kpts=kpts
@@ -37,6 +38,14 @@ class Frame:
         self.E = essential_matrix
         self.pose = pose
         self.timestamp =timestamp 
+        self.info = info
+
+
+    def get_info(self) -> dict:
+        if self.info is None:
+            raise RuntimeError("info not set for this Frame.")
+        return self.info
+
 
     def get_features(self) -> dict:
         if self.features is None:

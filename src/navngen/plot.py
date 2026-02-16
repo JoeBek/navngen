@@ -8,7 +8,10 @@ from typing import Sequence
 def plot_trajectory(trajectory:Sequence[Frame],
                     plane: str = "xz",
                     ax=None,
-                    show: bool = True):
+                    show: bool = True,
+                    title="Trajectory",
+                    label_indicies=False,
+                    ):
     """
     Plot bird's-eye view of trajectory translations.
 
@@ -79,8 +82,12 @@ def plot_trajectory(trajectory:Sequence[Frame],
     ax.set_ylabel(ylabel)
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(True)
-    ax.set_title("Visual Odometry on Airport Data")
+    ax.set_title(title)
     ax.legend()
+
+    if label_indicies:
+        for i, (x, y) in enumerate(zip(xs, ys)):
+            ax.annotate(str(i), (x, y), textcoords="offset points", xytext=(5,5), ha='center', fontsize=8)
 
     ax.relim()
     ax.autoscale_view()
