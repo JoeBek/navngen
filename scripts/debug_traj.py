@@ -101,11 +101,11 @@ if __name__=="__main__":
     r0,p0,y0 = rotation_matrix_to_euler_angles(R0)
     r1,p1,y1 = rotation_matrix_to_euler_angles(R1)
 
-    m_kpts0, m_kpts1 = frame0.get_kpts()[matches[..., 0]], frame1.get_kpts()[matches[..., 1]]
-    inlier0 = m_kpts0[frame1.get_info()["inliers"]]
-    inlier1 = m_kpts1[frame1.get_info()["inliers"]]
-    viz2d.plot_images([image0, image1])
-    viz2d.plot_matches(inlier0, inlier1, color="lime", lw=0.2)
-
+    #m_kpts0, m_kpts1 = frame0.get_kpts()[matches[..., 0]], frame1.get_kpts()[matches[..., 1]]
+    #inlier0 = m_kpts0[frame1.get_info()["inliers"]]
+    #inlier1 = m_kpts1[frame1.get_info()["inliers"]]
+    viz2d.plot_images([image0])
+    #viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
+    viz2d.plot_keypoints([frame0.kpts], ps=6)
     plt.show()
 

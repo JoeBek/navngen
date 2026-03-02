@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
-from .frame import Frame
+from .frame import Frame, PoseType
 from typing import Sequence
 
 
@@ -113,5 +113,84 @@ if __name__ == '__main__':
     print("Plotting dummy trajectory of Frame objects...")
     plot_trajectory(dummy_trajectory, plane='xy')
     plt.title("Dummy Frame Trajectory (XY-plane)")
+    plt.show()
+
+
+def plot_ate(frames: Sequence[Frame], gt_poses: Sequence[PoseType], show: bool = True, ax=None):
+    """
+    Plots the Absolute Translation Error (ATE).
+
+    ATE at each time step is calculated as the Euclidean distance between
+    the estimated translation and the ground truth translation.
+
+    Accepts:
+    - frames: A sequence of Frame objects with estimated poses.
+    - gt_poses: A sequence of ground truth poses (R, t).
+    - show: If True, call plt.show().
+    - ax: Optional matplotlib Axes to draw on.
+
+    Returns the Axes used.
+    """
+    if len(frames) != len(gt_poses):
+        raise ValueError("The number of frames and ground truth poses must be the same.")
+
+    errors = []
+    for frame, gt_pose in zip(frames, gt_poses):
+        est_pose = frame.get_pose()
+        t_est = est_pose[1]
+        t_gt = gt_pose[1]
+        
+        # Ensure translations are numpy arrays
+        t_est = np.asarray(t_est, dtype=float).reshape(3,)
+        t_gt = np.asarray(t_gt, dtype=float).reshape(3,)
+
+        error = np.linalg.norm(t_est - t_gt)
+        errors.append(error)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+        created_fig = True
+    else:
+        created_fig = False
+
+    frame_indices = range(len(frames))
+    ax.plot(frame_indices, errors, marker='.')
+    
+    ax.set_xlabel("Frame Index")
+    ax.set_ylabel("Absolute Translation Error (m)")
+    ax.set_title("Absolute Translation Error (ATE)")
+    ax.grid(True)
+
+    if show and created_fig:
+        plt.show()
+
+    return ax
+
+
+if __name__ == '__main__':
+    # Example usage: Create a dummy trajectory of Frame objects
+    dummy_trajectory = []
+    dummy_gt_poses = []
+    # Create some dummy Frame objects with poses
+    for i in range(10):
+        # Dummy rotation matrix (identity)
+        R = np.eye(3)
+        # Dummy translation vector
+        t_est = np.array([i * 0.1, np.sin(i * 0.5) * 0.2, i * 0.2])
+        dummy_frame = Frame(pose=(R, t_est))
+        dummy_trajectory.append(dummy_frame)
+
+        # Dummy ground truth pose
+        t_gt = np.array([i * 0.1, np.sin(i * 0.5) * 0.2, i * 0.2 + (i*0.02)])
+        dummy_gt_poses.append((R, t_gt))
+
+
+    print("Plotting dummy trajectory of Frame objects...")
+    plot_trajectory(dummy_trajectory, plane='xy')
+    plt.title("Dummy Frame Trajectory (XY-plane)")
+    plt.show()
+
+    print("Plotting dummy ATE...")
+    plot_ate(dummy_trajectory, dummy_gt_poses)
     plt.show()
     

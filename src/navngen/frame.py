@@ -29,7 +29,7 @@ class Frame:
     
     def __init__(self, features:Optional[dict]=None, kpts:Optional[torch.Tensor]=None,
                   matches:Optional[torch.Tensor]=None, path:Optional[Path]=None, 
-                  essential_matrix:Optional[PoseType]=None, pose:Optional[PoseType]=None, timestamp:Optional[int]=None, info:Optional[dict]=None):
+                  essential_matrix:Optional[PoseType]=None, pose:Optional[PoseType]=None, timestamp:Optional[int]=None, info:Optional[dict]=None, kpt_depth:Optional[torch.Tensor]=None):
 
         self.features = features
         self.kpts=kpts
@@ -39,6 +39,13 @@ class Frame:
         self.pose = pose
         self.timestamp =timestamp 
         self.info = info
+        self.kpt_depth = kpt_depth
+
+    def get_kpt_depth(self) -> torch.Tensor:
+        if self.kpt_depth is None:
+            raise RuntimeError("info not set for this Frame.")
+        return self.kpt_depth
+
 
 
     def get_info(self) -> dict:
@@ -81,6 +88,9 @@ class Frame:
         if self.timestamp is None:
             raise RuntimeError("Timestamp not set for this Frame.")
         return self.timestamp
+
+    def set_kpt_depth(self, kpt_depth):
+        self.kpt_depth = kpt_depth
 
     def set_timestamp(self, timestamp):
         self.timestamp = timestamp

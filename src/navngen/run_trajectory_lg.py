@@ -15,8 +15,10 @@ from tqdm import tqdm
 from lightglue import LightGlue, SuperPoint
 from lightglue.utils import rbd
 from frame import Frame
-from typing import Sequence
+from typing import Sequence, Tuple
 import torch
+import cv2
+from filter import filter_depth_normalized
 
 def parse_camera_euroc(path: Path) -> dict:
     camera_config = {}
@@ -214,6 +216,83 @@ def gen_trajectory_euroc(input_path: Path, solver: Solver):
         
     return trajectories
 
+def random_sample_keypoints(kpts:torch.Tensor, num_kept:int) -> torch.Tensor:
+    """
+    Randomly samples a subset of keypoints.
+
+    Args:
+        kpts: A tensor of keypoints of shape (N, 2).
+        num_kept: The number of keypoints to keep.
+
+    Returns:
+        A tensor of shape (num_kept, 2) containing the randomly sampled keypoints.
+    """
+    if num_kept >= kpts.shape[0]:
+        return kpts
+    indices = torch.randperm(kpts.shape[0])[:num_kept]
+    return kpts[indices]
+
+def get_frame_pose_kitti(img_last:torch.Tensor, img_curr:torch.Tensor, num_keypoints:int, solver: Solver) -> Frame:
+    """
+    Computes the relative pose between two images, with random sampling of keypoints in the second image.
+
+    Args:
+        img_last: The previous image as a torch.Tensor.
+        img_curr: The current image as a torch.Tensor.
+        num_keypoints: The number of keypoints to sample in the current image.
+        solver: A Solver object for pose estimation.
+
+    Returns:
+        A Frame object containing the computed pose and other information.
+    """
+    
+    feats, kpts_curr, matches, mk_last, mk_curr = match_frames_sampled(img_last, img_curr, num_keypoints)
+    
+    transform, info = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
+    
+    r = transform.R
+    t = transform.t
+    
+    output_frame = Frame(
+        kpts=kpts_curr.cpu(),
+        matches=matches.cpu(),
+        essential_matrix = (r, t),
+        info=info,
+        features=feats
+    )
+    
+    return output_frame
+
+def match_frames_sampled(frame0, frame1, num_keypoints):
+    # load extractor and matcher
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 'mps', 'cpu'
+
+    extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  # load the extractor
+    matcher = LightGlue(features="superpoint").eval().to(device)
+
+
+    feats0 = extractor.extract(frame0.to(device))
+    feats1 = extractor.extract(frame1.to(device))
+
+    # Randomly sample keypoints from feats1
+    if num_keypoints < len(feats1['keypoints']):
+        indices = torch.randperm(len(feats1['keypoints']))[:num_keypoints]
+        feats1['keypoints'] = feats1['keypoints'][indices]
+        feats1['descriptors'] = feats1['descriptors'][indices]
+
+
+    matches01 = matcher({"image0": feats0, "image1": feats1})
+    feats0, feats1, matches01 = [
+        rbd(x) for x in [feats0, feats1, matches01]
+    ]  # remove batch dimension
+
+    kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
+    m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
+
+    return  feats1, kpts1.cpu(), matches.cpu(), m_kpts0, m_kpts1
+
+    
+    
 
 def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
     img_path = input_path / 'image_2'
@@ -299,6 +378,131 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
     return output_frames 
 
 
+def gen_trajectory_kitti_depth_filtered(input_path: Path, solver: Solver, depth_path: Path, tl: float = 0.0, th: float = 0.0) -> Sequence[Frame]:
+    img_path = input_path / 'image_2'
+    
+    img_files = sorted(img_path.glob('*.png'))
+    depth_files = sorted(depth_path.glob('*.png'))
+
+    output_frames = []
+
+    
+    with open(input_path / 'times.txt') as f:
+        timestamps = [float(line) for line in f]
+
+    # aachen day 0 has 4469 images but 4470 timestamps. this is a temporary fix
+    if len(timestamps) > len(img_files):
+        timestamps = timestamps[:len(img_files)]
+
+    if len(img_files) != len(depth_files):
+        raise ValueError(f"Number of images ({len(img_files)}) does not match number of depth maps ({len(depth_files)})")
+
+    first_frame = load_image(img_files[0])
+    # in torchscript land, this is W, H, C, but in numpy land its C, H, W
+    # in our case we get a torchscript tensor so we must use the appropriate dims
+    solver.camera['height'] = first_frame.shape[1]
+    solver.camera['width'] = first_frame.shape[2]
+
+    r0 = np.eye(3)
+    t0 = np.zeros(3)
+
+    trajectories = {timestamps[0]: (r0, t0)}
+    frames = {}
+    depth_map_paths = {}
+
+    for timestamp, filename, d_filename in tqdm(zip(timestamps, img_files, depth_files), desc="Storing Image Paths...", total=len(timestamps)):
+        frames[timestamp] = filename
+        depth_map_paths[timestamp] = d_filename
+
+    sorted_timestamps = sorted(frames.keys())
+
+    for i in tqdm(range(1, len(sorted_timestamps)), desc="getting trajectory"):
+
+        ts_last = sorted_timestamps[i-1]
+        ts_curr = sorted_timestamps[i]
+
+        
+        last_frame_path = frames[ts_last]
+        curr_frame_path = frames[ts_curr]
+        curr_depth_path = depth_map_paths[ts_curr]
+
+
+        try:
+            frame_last = load_image(last_frame_path)
+            frame_curr = load_image(curr_frame_path)
+            depth_curr = cv2.imread(str(curr_depth_path), cv2.IMREAD_UNCHANGED)
+        except Exception as e:
+            import traceback, logging
+            logging.error(f"operation failed for kitti image loading: %s", e)
+            traceback.print_exc()
+            exit()
+
+
+        
+        feats , kpts_curr, matches, mk_last, mk_curr = match_frames(frame_last, frame_curr)
+        
+        # Depth filtering for pose estimation
+        if depth_curr is not None:
+            mk_curr_np = mk_curr.cpu().numpy()
+            x = np.round(mk_curr_np[:, 0]).astype(int)
+            y = np.round(mk_curr_np[:, 1]).astype(int)
+            
+            h, w = depth_curr.shape[:2]
+            x = np.clip(x, 0, w - 1)
+            y = np.clip(y, 0, h - 1)
+            
+            matched_kpt_depth = depth_curr[y, x].astype(np.float32)
+            
+            # Apply thresholds to matches
+            mask = matched_kpt_depth >= tl
+            if th > tl:
+                mask &= (matched_kpt_depth <= th)
+            
+            mk_last = mk_last[mask]
+            mk_curr = mk_curr[mask]
+            
+            # Sample depth for ALL keypoints in the current frame for the Frame object
+            kpts_curr_np = kpts_curr.cpu().numpy()
+            xk = np.round(kpts_curr_np[:, 0]).astype(int)
+            yk = np.round(kpts_curr_np[:, 1]).astype(int)
+            xk = np.clip(xk, 0, w - 1)
+            yk = np.clip(yk, 0, h - 1)
+            all_kpt_depth = torch.from_numpy(depth_curr[yk, xk].astype(np.float32))
+        else:
+            all_kpt_depth = None
+
+        
+        transform, info = solver.solve_relative_pose(mk_last.cpu().numpy(), mk_curr.cpu().numpy())
+        r = transform.R
+        t = transform.t
+        
+        rl, tl_last = trajectories[ts_last]
+
+        rn, tn = compose_with_unit_direction(rl, tl_last, r, t)
+
+        output_frame = Frame(
+            kpts=kpts_curr,
+            matches=matches,
+            path=curr_frame_path,
+            essential_matrix=(r, t),
+            pose=(rn, tn),
+            features=feats,
+            timestamp=ts_curr,
+            info=info,
+            kpt_depth=all_kpt_depth
+        )
+        
+        # Apply depth filtering to the Frame object itself
+        if output_frame.kpt_depth is not None:
+            filter_depth_normalized([output_frame], tl=tl, th=th)
+            
+        output_frames.append(output_frame)
+        
+        trajectories[ts_curr] = (rn, tn)
+        
+    return output_frames 
+
+
 def run_euroc_test():
 
     root = Path(__file__).resolve().parent.parent.parent / "assets" / "V2_01_easy" / "mav0"  
@@ -320,13 +524,14 @@ def run_euroc_test():
 def run_kitti_test():
     root = Path(__file__).resolve().parent.parent.parent / "assets" / "sequences" / "01"
     config_path = root / "calib.txt"
+    depth_path = Path("/home/joe/vt/research/glue/depth/output/01_depth/")
 
     
-    write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum_ransac.txt"
-    pickle_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_pickle_ransac.pkl.gz"
+    write_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_tum_depth_0-50.txt"
+    pickle_path = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / "01_pickle_depth_0-50.pkl.gz"
     
     solver = Solver(config_path, config_type="kitti")
-    traj = gen_trajectory_kitti(root, solver)
+    traj = gen_trajectory_kitti_depth_filtered(root, solver,depth_path, tl=0,th=155)
 
     from export_trajectory import convert_tum, export_trajectory_tum, export_frames
     
@@ -334,9 +539,60 @@ def run_kitti_test():
     export_trajectory_tum(tum_traj, write_path)
     export_frames(traj,pickle_path)
  
+def kitti_test_subsets(num_trials: int, keypoint_amount: int, img_index: int):
+    """
+    Runs multiple trials of 'get_frame_pose_kitti' on a specific image pair
+    from the KITTI dataset and exports the resulting frames.
+
+    Args:
+        num_trials: The number of times to run get_frame_pose_kitti for the image pair.
+        keypoint_amount: The number of keypoints to sample for each trial.
+        img_index: The index of the current image in the KITTI sequence (0-based).
+                   The function will use this image and the one prior to it.
+    """
+    root = Path(__file__).resolve().parent.parent.parent / "assets" / "sequences" / "01"
+    config_path = root / "calib.txt"
+    
+    output_dir = Path(__file__).resolve().parent.parent.parent / "assets" / "outputs" / f"kp_trials_{keypoint_amount}_idx_{img_index}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    solver = Solver(config_path, config_type="kitti")
+
+    from export_trajectory import export_frames
+    
+    img_path_root = root / 'image_2'
+    img_files = sorted(img_path_root.glob('*.png'))
+
+    if not (1 <= img_index < len(img_files)):
+        raise ValueError(f"img_index ({img_index}) must be within the valid range [1, {len(img_files) - 1}] for image pairs.")
+
+    frame_last_img = load_image(img_files[img_index - 1])
+    frame_curr_img = load_image(img_files[img_index])
+
+    trial_frames: Sequence[Frame] = []
+
+    # Read timestamps for the specific images
+    with open(root / 'times.txt') as f:
+        timestamps = [float(line) for line in f]
+    if len(timestamps) > len(img_files):
+        timestamps = timestamps[:len(img_files)]
+
+    for i in tqdm(range(num_trials), desc=f"Running {num_trials} trials for {keypoint_amount} kpts on image pair {img_index-1}-{img_index}"):
+        
+        current_frame = get_frame_pose_kitti(frame_last_img, frame_curr_img, keypoint_amount, solver)
+        
+        current_frame.path = img_files[img_index]
+        current_frame.timestamp = timestamps[img_index]
+
+        trial_frames.append(current_frame)
+    
+    pickle_path = output_dir / f"result_frames.pkl.gz"
+    export_frames(trial_frames, pickle_path)
+
+    print(f"Saved {num_trials} trial frames for keypoint_amount={keypoint_amount} and img_index={img_index} to {pickle_path}")
 
 
 if __name__ == "__main__":
     
 
-    run_kitti_test()
+    kitti_test_subsets(num_trials=100, keypoint_amount=50, img_index=10)
