@@ -6,7 +6,7 @@ from typing import Sequence
 import numpy as np
 from pathlib import Path
 from scipy.spatial.transform import Rotation
-from frame import Frame
+from .frame import Frame
 import pickle
 import gzip
 from tqdm import tqdm

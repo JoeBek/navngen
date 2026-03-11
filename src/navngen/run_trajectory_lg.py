@@ -8,17 +8,17 @@ from pathlib import Path
 import numpy as np
 import yaml
 import pandas as pd
-from camera import parse_camera_surfnav
+from .camera import parse_camera_surfnav
 from poselib import estimate_relative_pose
-from load_images import load_image
+from .load_images import load_image
 from tqdm import tqdm
 from lightglue import LightGlue, SuperPoint
-from lightglue.utils import rbd
-from frame import Frame
+from lightglue.utils import rbd, map_tensor
+from .frame import Frame
 from typing import Sequence, Tuple
 import torch
 import cv2
-from filter import filter_depth_normalized
+from .filter import filter_depth_normalized
 
 def parse_camera_euroc(path: Path) -> dict:
     camera_config = {}
@@ -377,6 +377,99 @@ def gen_trajectory_kitti(input_path: Path, solver: Solver) -> Sequence[Frame]:
         
     return output_frames 
 
+
+def extract_kpts_from_sequence(input_path: Path) -> Sequence[Frame]:
+    """
+    Extracts keypoints from a sequence of images and returns a list of partial frames.
+    """
+    img_path = input_path / 'image_2'
+    img_files = sorted(img_path.glob('*.png'))
+
+    with open(input_path / 'times.txt') as f:
+        timestamps = [float(line) for line in f]
+
+    if len(timestamps) > len(img_files):
+        timestamps = timestamps[:len(img_files)]
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)
+
+    partial_frames = []
+    for img_file, timestamp in tqdm(zip(img_files, timestamps), desc="Extracting keypoints", total=len(img_files)):
+        image = load_image(img_file)
+        features = extractor.extract(image.to(device))
+        
+        features_no_batch = rbd(features)
+        features_cpu = {k: v.cpu().detach() for k, v in features_no_batch.items()}
+
+        frame = Frame(
+            path=img_file,
+            timestamp=timestamp,
+            features=features_cpu,
+            kpts=features_cpu['keypoints']
+        )
+        partial_frames.append(frame)
+
+    return partial_frames
+
+def solve_poses_from_frames(frames: Sequence[Frame], solver: Solver) -> Sequence[Frame]:
+    """
+    Takes a sequence of partial frames with keypoints, matches them, 
+    and solves for the full trajectory.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    matcher = LightGlue(features="superpoint").eval().to(device)
+
+    if not frames:
+        return []
+
+    r0 = np.eye(3)
+    t0 = np.zeros(3)
+    
+    frames[0].pose = (r0, t0)
+    
+    trajectories = {frames[0].timestamp: (r0, t0)}
+    
+    # The first frame is already "processed" in a sense.
+    processed_frames = [frames[0]]
+
+    for i in tqdm(range(1, len(frames)), desc="Solving poses"):
+        frame_last = frames[i-1]
+        frame_curr = frames[i]
+
+        feats0_cpu = frame_last.features
+        feats1_cpu = frame_curr.features
+
+        # Add batch dimension and move to device
+        feats0 = map_tensor(feats0_cpu, lambda x: x[None].to(device))
+        feats1 = map_tensor(feats1_cpu, lambda x: x[None].to(device))
+
+        matches01 = matcher({"image0": feats0, "image1": feats1})
+        matches01 = rbd(matches01)
+
+        kpts0 = frame_last.kpts
+        kpts1 = frame_curr.kpts
+        matches = matches01['matches'].cpu()
+
+        m_kpts0 = kpts0[matches[..., 0]].numpy()
+        m_kpts1 = kpts1[matches[..., 1]].numpy()
+        
+        transform, info = solver.solve_relative_pose(m_kpts0, m_kpts1)
+        r, t = transform.R, transform.t
+        
+        rl, tl = trajectories[frame_last.timestamp]
+        rn, tn = compose_with_unit_direction(rl, tl, r, t)
+
+        trajectories[frame_curr.timestamp] = (rn, tn)
+
+        frame_curr.essential_matrix = (r, t)
+        frame_curr.pose = (rn, tn)
+        frame_curr.matches = matches
+        frame_curr.info = info
+        
+        processed_frames.append(frame_curr)
+
+    return processed_frames
 
 def gen_trajectory_kitti_depth_filtered(input_path: Path, solver: Solver, depth_path: Path, tl: float = 0.0, th: float = 0.0) -> Sequence[Frame]:
     img_path = input_path / 'image_2'
