@@ -2,25 +2,29 @@
 FROM python:3.11-slim
 
 # Set the working directory in the container
-WORKDIR /app
+WORKDIR /navngen
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
-    cmake
+    cmake \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* 
 
 # Copy the requirements file and install dependencies
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN git clone https://github.com/cvg/LightGlue.git /app/LightGlue
+RUN git clone https://github.com/cvg/LightGlue.git /navngen/LightGlue
 
-WORKDIR /app/LightGlue
+WORKDIR /navngen/LightGlue
 RUN pip install --no-cache-dir -r requirements.txt || true
+RUN pip install --no-cache-dir .
 
-WORKDIR /app
+WORKDIR /navngen
 
 # Copy the rest of the application's source code
 COPY . .
