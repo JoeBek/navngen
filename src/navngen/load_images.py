@@ -6,7 +6,7 @@ import cv2
 from typing import Callable, List, Optional, Tuple, Union, Any
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from frame import Frame
+from .frame import Frame
 '''
 load images from storage into memory. use PIL to read from pathlib object input and output as np array or cv mat or tensor array
 '''
