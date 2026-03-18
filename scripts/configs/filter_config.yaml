@@ -1,0 +1,22 @@
+# config_depth_filter.yaml
+# Filter configuration for KITTI data processing
+
+# --- Depth Filter Settings ---
+depth:
+  # Lower depth threshold. Keypoints with depth below this value will be removed.
+  tl: 0.0
+  # Upper depth threshold. If > tl, keypoints with depth above this value will be removed.
+  th: 1.0
+  # Whether to normalize depth points after filtering.
+  normalize: True 
+
+# --- Segmentation Filter Settings ---
+segmentation:
+  # Comma-separated list of class IDs to keep.
+  # Cityscapes class mappings:
+  #   0: road, 1: sidewalk, 2: building, 3: wall, 4: fence,
+  #   5: pole, 6: traffic light, 7: traffic sign, 8: vegetation,
+  #   9: terrain, 10: sky, 11: person, 12: rider, 13: car,
+  #   14: truck, 15: bus, 16: train, 17: motorcycle, 18: bicycle.
+  # Example for static features: "0,1,2,3,4,5,7,8,9,10"
+  filter_ids: "0,1,2,3,4,5,7,8,9,10,11,12,13,14,15,16,17,18"

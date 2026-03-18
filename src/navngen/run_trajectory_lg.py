@@ -18,7 +18,7 @@ from .frame import Frame
 from typing import Sequence, Tuple
 import torch
 import cv2
-from .filter import filter_depth_normalized
+from .filter import filter_depth
 
 def parse_camera_euroc(path: Path) -> dict:
     camera_config = {}

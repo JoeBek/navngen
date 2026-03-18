@@ -4,10 +4,10 @@ from typing import Sequence
 import torch
 import numpy as np
 
-def filter_depth_normalized(frames: Sequence[Frame], tl=0.0, th=0.0) -> Sequence[Frame]:
+def filter_depth(frames: Sequence[Frame], normalize=False, tl=0.0, th=0.0) -> Sequence[Frame]:
     """
-    Filters out keypoints based on depth thresholds. 
-    Returns frames with an equal or reduced number of keypoints based on normalized depth thresholds.
+    Filters out keypoints based on absolute depth thresholds.
+    Returns frames with an equal or reduced number of keypoints based on depth values.
 
     :param frames: A sequence of Frame objects to be filtered.
     :type frames: Sequence[Frame]
@@ -18,6 +18,9 @@ def filter_depth_normalized(frames: Sequence[Frame], tl=0.0, th=0.0) -> Sequence
     :return: The sequence of filtered Frame objects.
     :rtype: Sequence[Frame]
     """
+
+    if normalize:
+        frames = normalize_depth(frames)
     for frame in frames:
         if frame.kpt_depth is None or frame.kpts is None or frame.features is None:
             continue
@@ -33,23 +36,19 @@ def filter_depth_normalized(frames: Sequence[Frame], tl=0.0, th=0.0) -> Sequence
 
         # Apply the mask to keypoints and their associated data
         frame.kpts = frame.kpts[mask]
-        frame.kpt_depth = frame.kpt_depth[mask]
+        if frame.kpt_depth is not None:
+            frame.kpt_depth = frame.kpt_depth[mask]
 
-        # The 'features' dictionary from SuperPoint/LightGlue needs to be filtered as well
-        # to maintain consistency.
+        # Filter features to maintain consistency
         if 'keypoints' in frame.features:
             frame.features['keypoints'] = frame.features['keypoints'][mask]
         if 'keypoint_scores' in frame.features:
             frame.features['keypoint_scores'] = frame.features['keypoint_scores'][mask]
         if 'descriptors' in frame.features:
-            # Descriptors have a different shape (N, D), so we filter on the first dimension
             frame.features['descriptors'] = frame.features['descriptors'][mask]
             
-        # Note: This function does not update frame.matches, as it would require
-        # re-indexing across multiple frames, which is outside the typical scope
-        # of a simple keypoint filter. Matches should be recomputed if needed.
-
     return frames
+
 
 def filter_segmentation(frames: Sequence[Frame], masks: Sequence[np.ndarray], filter_ids: Sequence[int]) -> Sequence[Frame]:
     """
@@ -113,4 +112,51 @@ def filter_segmentation(frames: Sequence[Frame], masks: Sequence[np.ndarray], fi
         if 'descriptors' in frame.features:
             frame.features['descriptors'] = frame.features['descriptors'][torch_mask]
             
+    return frames
+
+
+def normalize_depth(frames: Sequence[Frame]) -> Sequence[Frame]:
+    """
+    Aggregates all depth masks and normalizes depth points to a relative distance
+    from 0 to 1, where 0 is the closest.
+
+    :param frames: A sequence of Frame objects to be processed.
+    :type frames: Sequence[Frame]
+    :return: The sequence of Frame objects with normalized depth.
+    :rtype: Sequence[Frame]
+    """
+    all_depths = []
+    for frame in frames:
+        if frame.kpt_depth is not None:
+            if isinstance(frame.kpt_depth, torch.Tensor):
+                all_depths.append(frame.kpt_depth)
+            else:
+                all_depths.append(torch.tensor(frame.kpt_depth))
+
+    if not all_depths:
+        return frames
+
+    all_depths_tensor = torch.cat(all_depths)
+    if all_depths_tensor.numel() == 0:
+        return frames
+
+    min_depth = torch.min(all_depths_tensor)
+    max_depth = torch.max(all_depths_tensor)
+
+    if max_depth > min_depth:
+        # Normalize between 0 and 1
+        scale = max_depth - min_depth
+        for frame in frames:
+            if frame.kpt_depth is not None:
+                # Ensure kpt_depth is a tensor for the operation
+                if not isinstance(frame.kpt_depth, torch.Tensor):
+                    frame.kpt_depth = torch.tensor(frame.kpt_depth, dtype=torch.float32)
+                
+                frame.kpt_depth = (frame.kpt_depth - min_depth) / scale
+    else:
+        # If all depths are the same, they are all the 'closest', so map to 0
+        for frame in frames:
+            if frame.kpt_depth is not None:
+                frame.kpt_depth = torch.zeros_like(frame.kpt_depth)
+                
     return frames
