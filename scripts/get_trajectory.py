@@ -9,9 +9,10 @@ import numpy as np
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
-from src.navngen.run_trajectory_lg import (
+from src.navngen.trajectory import (
     extract_kpts_from_sequence,
     solve_poses_from_frames,
+    create_frame_sequence,
     Solver,
 )
 from src.navngen.export_trajectory import convert_tum, export_trajectory_tum, export_frames
@@ -24,8 +25,10 @@ def main(args):
     # 1. Instantiate Solver
     solver = Solver(args.config_path, config_type=args.config_type)
 
+    initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
+
     # 2. Extract keypoints and create partial frames
-    partial_frames = extract_kpts_from_sequence(args.input_path)
+    partial_frames = extract_kpts_from_sequence(initial_frames)
 
     # 3. Solve for poses using the frames
     final_frames = solve_poses_from_frames(partial_frames, solver)
@@ -62,6 +65,7 @@ if __name__ == "__main__":
     parser.add_argument("--pickle_path", type=Path,
                         help="Optional: Path to save the processed frames as a compressed pickle file.")
     parser.add_argument("--config_type", type=str, default="kitti", help="type of config file to parse")
+    parser.add_argument("--image_dirname", type=str, default="image_2", help="name of the directory with images in it")
 
     args = parser.parse_args()
     main(args)

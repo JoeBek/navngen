@@ -9,9 +9,10 @@ import numpy as np
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
-from src.navngen.run_trajectory_lg import (
+from src.navngen.trajectory import (
     extract_kpts_from_sequence,
     solve_poses_from_frames,
+    create_frame_sequence,
     Solver,
 )
 from src.navngen.filter import filter_segmentation, filter_depth
@@ -47,10 +48,13 @@ def main(args):
     applying filtering to the keypoints.
     """
     # 1. Instantiate Solver
-    solver = Solver(args.config_path, config_type="kitti")
+    solver = Solver(args.config_path, config_type=args.config_type)
 
     # 2. Extract keypoints and create partial frames
-    partial_frames = extract_kpts_from_sequence(args.input_path)
+
+    initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
+    # 2. Extract keypoints and create partial frames
+    partial_frames = extract_kpts_from_sequence(initial_frames)
 
     # 4. Filter keypoints based on the selected mode
     if args.filter_mode == 'segmentation':
@@ -126,6 +130,8 @@ if __name__ == "__main__":
                         help="Optional: Path to save the final trajectory in TUM format.")
     parser.add_argument("--pickle_path", "-p", type=Path,
                         help="Optional: Path to save the processed frames as a compressed pickle file.")
+    parser.add_argument("--image_dirname", type=str, default="image_2", help="name of the directory with images in it")
+    parser.add_argument("--config_type", type=str, default="kitti", help="type of config file to parse")
 
     # Filtering mode
     filter_parsers = parser.add_subparsers(dest='filter_mode', required=True, help="Filtering mode")

@@ -19,4 +19,4 @@ segmentation:
   #   9: terrain, 10: sky, 11: person, 12: rider, 13: car,
   #   14: truck, 15: bus, 16: train, 17: motorcycle, 18: bicycle.
   # Example for static features: "0,1,2,3,4,5,7,8,9,10"
-  filter_ids: "0,1,2,3,4,5,7,8,9,10,11,12,13,14,15,16,17,18"
+  filter_ids: "0,1,2,3,4,5,7,8,9"
