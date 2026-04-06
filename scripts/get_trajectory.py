@@ -26,7 +26,6 @@ def main(args):
     solver = Solver(args.config_path, config_type=args.config_type)
 
     initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
-
     # 2. Extract keypoints and create partial frames
     partial_frames = extract_kpts_from_sequence(initial_frames)
 

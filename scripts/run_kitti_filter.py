@@ -22,8 +22,8 @@ def main():
     default_config_path = project_root / 'scripts' / 'configs' / 'filter_config.yaml'
 
     parser = argparse.ArgumentParser(description="Run filtering for KITTI sequences.")
-    parser.add_argument("--filter-mode", type=str, choices=['depth', 'segmentation'], default='depth',
-                        help="The type of filtering to apply.")
+    parser.add_argument("--filter-mode", type=str, choices=['depth', 'segmentation', 'both'], default='depth',
+                        help="The type of filtering to apply. 'both' applies depth then segmentation on the same keypoints.")
     parser.add_argument("--kitti_data_path", type=Path, default=Path("/home/joe/data/kitti"),
                         help="Path to the main KITTI data directory.")
     parser.add_argument("--output_dir", type=Path, default=default_save_path,
@@ -76,7 +76,7 @@ def main():
             tl = depth_config.get('tl', 0.0)
             th = depth_config.get('th', 50.0)
             normalize = depth_config.get('normalize', False)
-            
+
             mask_path = args.kitti_data_path / 'depth' / trial_str / 'masks'
             if not mask_path.exists():
                 tqdm.write(f"Depth data path not found for trial {trial_str}, skipping: {mask_path}")
@@ -94,7 +94,7 @@ def main():
         elif args.filter_mode == 'segmentation':
             seg_config = config.get('segmentation', {})
             filter_ids = seg_config.get('filter_ids', "")
-            
+
             mask_path = args.kitti_data_path / 'seg' / trial_str / 'masks'
             if not mask_path.exists():
                 tqdm.write(f"Segmentation mask path not found for trial {trial_str}, skipping: {mask_path}")
@@ -105,6 +105,35 @@ def main():
                 "--mask-path", str(mask_path),
                 "--filter-ids", str(filter_ids)
             ])
+
+        elif args.filter_mode == 'both':
+            depth_config = config.get('depth', {})
+            seg_config   = config.get('segmentation', {})
+            tl        = depth_config.get('tl', 0.0)
+            th        = depth_config.get('th', 50.0)
+            normalize = depth_config.get('normalize', False)
+            filter_ids = seg_config.get('filter_ids', "")
+
+            depth_mask_path = args.kitti_data_path / 'depth' / trial_str / 'masks'
+            seg_mask_path   = args.kitti_data_path / 'seg'   / trial_str / 'masks'
+
+            if not depth_mask_path.exists():
+                tqdm.write(f"Depth mask path not found for trial {trial_str}, skipping: {depth_mask_path}")
+                continue
+            if not seg_mask_path.exists():
+                tqdm.write(f"Segmentation mask path not found for trial {trial_str}, skipping: {seg_mask_path}")
+                continue
+
+            command.extend([
+                "both",
+                "--depth-mask-path", str(depth_mask_path),
+                "--seg-mask-path",   str(seg_mask_path),
+                "--tl",              str(tl),
+                "--th",              str(th),
+                "--filter-ids",      str(filter_ids),
+            ])
+            if normalize:
+                command.append("--normalize")
         
         tqdm.write(f"----- Running Trial {trial_str} ({args.filter_mode}) -----")
         # Use a more readable format for printing the command

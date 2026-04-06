@@ -65,7 +65,7 @@ def main(args):
                 f"Mismatch between number of frames ({len(partial_frames)}) "
                 f"and number of masks ({len(mask_files)})."
             )
-        
+
         masks = [np.load(f) for f in tqdm(mask_files, desc="Loading masks")]
         filter_ids = [int(fid) for fid in args.filter_ids.split(',')]
         print(f"Filtering frames with class IDs: {filter_ids}")
@@ -89,6 +89,33 @@ def main(args):
 
         print(f"Filtering frames with depth thresholds: tl={args.tl}, th={args.th}")
         filtered_frames = filter_depth(partial_frames, args.normalize, tl=args.tl, th=args.th)
+
+    elif args.filter_mode == 'both':
+        # --- depth pass ---
+        depth_files = sorted(Path(args.depth_mask_path).glob('*.npy'))
+        if len(depth_files) != len(partial_frames):
+            raise ValueError(
+                f"Mismatch between number of frames ({len(partial_frames)}) "
+                f"and number of depth maps ({len(depth_files)})."
+            )
+        depth_maps = [np.load(f) for f in tqdm(depth_files, desc="Loading depth maps")]
+        for frame, depth_map in zip(partial_frames, depth_maps):
+            if frame.kpts is not None:
+                frame.kpt_depth = get_kpt_depth(frame.kpts.cpu(), depth_map).to(frame.kpts.device)
+        print(f"Filtering frames with depth thresholds: tl={args.tl}, th={args.th}")
+        depth_filtered = filter_depth(partial_frames, args.normalize, tl=args.tl, th=args.th)
+
+        # --- segmentation pass on the depth-filtered frames ---
+        seg_files = sorted(Path(args.seg_mask_path).glob('*.npy'))
+        if len(seg_files) != len(depth_filtered):
+            raise ValueError(
+                f"Mismatch between number of frames ({len(depth_filtered)}) "
+                f"and number of seg masks ({len(seg_files)})."
+            )
+        seg_masks = [np.load(f) for f in tqdm(seg_files, desc="Loading seg masks")]
+        filter_ids = [int(fid) for fid in args.filter_ids.split(',')]
+        print(f"Filtering frames with class IDs: {filter_ids}")
+        filtered_frames = filter_segmentation(depth_filtered, seg_masks, filter_ids)
 
     else:
         raise ValueError(f"Unknown filter mode: {args.filter_mode}")
@@ -151,11 +178,23 @@ Cityscapes class mappings:
 
     # Depth filtering arguments
     depth_parser = filter_parsers.add_parser('depth', help="Filter keypoints using depth maps.")
-    depth_parser.add_argument("--mask-path", "-m", type=Path, required=True, 
+    depth_parser.add_argument("--mask-path", "-m", type=Path, required=True,
                               help="Path to the directory containing depth maps as .npy files.")
     depth_parser.add_argument("--tl", type=float, required=True, help="Lower depth threshold.")
     depth_parser.add_argument("--th", type=float, required=True, help="Upper depth threshold.")
     depth_parser.add_argument("--normalize", action="store_true", help="Normalize the depth points after filtering.")
+
+    # Combined depth + segmentation filtering arguments
+    both_parser = filter_parsers.add_parser('both', help="Apply depth filtering then segmentation filtering.")
+    both_parser.add_argument("--depth-mask-path", type=Path, required=True,
+                             help="Path to the directory containing depth maps as .npy files.")
+    both_parser.add_argument("--seg-mask-path", type=Path, required=True,
+                             help="Path to the directory containing segmentation masks as .npy files.")
+    both_parser.add_argument("--tl", type=float, required=True, help="Lower depth threshold.")
+    both_parser.add_argument("--th", type=float, required=True, help="Upper depth threshold.")
+    both_parser.add_argument("--normalize", action="store_true", help="Normalize depth points after filtering.")
+    both_parser.add_argument("--filter-ids", type=str, required=True,
+                             help="Comma-separated list of segmentation class IDs to keep.")
 
     args = parser.parse_args()
     main(args)

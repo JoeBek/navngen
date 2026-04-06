@@ -6,7 +6,7 @@ depth:
   # Lower depth threshold. Keypoints with depth below this value will be removed.
   tl: 0.0
   # Upper depth threshold. If > tl, keypoints with depth above this value will be removed.
-  th: 1.0
+  th: 0.5
   # Whether to normalize depth points after filtering.
   normalize: True 
 
