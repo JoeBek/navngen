@@ -90,6 +90,24 @@ def create_frame_sequence(input_path: Path, images_dirname:str) -> Sequence[Fram
     return [Frame(path=p, timestamp=t) for p, t in zip(img_files, timestamps)]
 
 
+def create_frame_sequence_euroc(mav0_path: Path) -> Sequence[Frame]:
+    """
+    Creates a sequence of frames from an EuRoC mav0 directory.
+    Reads timestamps and filenames from cam0/data.csv.
+    Timestamps are in nanoseconds (int).
+    """
+    cam0_path = mav0_path / 'cam0'
+    img_path = cam0_path / 'data'
+
+    df = pd.read_csv(cam0_path / 'data.csv')
+    df.rename(columns=lambda x: x.strip(), inplace=True)
+
+    timestamps = df['#timestamp [ns]'].tolist()
+    filenames = df['filename'].tolist()
+
+    return [Frame(path=img_path / fn, timestamp=ts) for ts, fn in zip(timestamps, filenames)]
+
+
 def extract_kpts_from_sequence(frames: Sequence[Frame]) -> Sequence[Frame]:
     """
     Extracts keypoints for each frame in the sequence using frame.path.

@@ -187,7 +187,7 @@ def prepare_staging(scene: dict, dataroot: Path, staging_root: Path,
     for sd in frames:
         src  = (dataroot / sd['filename']).resolve()
         dst  = img_dir / src.name
-        if not dst.exists():
+        if not dst.exists() and not dst.is_symlink():
             dst.symlink_to(src)
 
     # --- times.txt (timestamps in seconds) ---
@@ -286,6 +286,8 @@ def main():
                              help="Process only the 150 official nuScenes validation scenes.")
     split_group.add_argument("--test", action="store_true",
                              help="Process only the 150 official nuScenes test scenes.")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip scenes whose output trajectory file already exists.")
     args = parser.parse_args()
 
     try:
@@ -324,6 +326,10 @@ def main():
         )
 
         output_traj = args.output_dir / f"nuscenes_{name}_{args.filter_mode}_filtered_traj.txt"
+
+        if args.skip_existing and output_traj.exists():
+            tqdm.write(f"[{name}] Output already exists, skipping.")
+            continue
 
         # --- Build filter_trajectory.py command ---
         command = [

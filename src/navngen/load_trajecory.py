@@ -1,4 +1,30 @@
 import numpy as np
+import pandas as pd
+from pathlib import Path
+
+
+def load_ground_truth_euroc(mav0_path: Path) -> np.ndarray:
+    """
+    Loads EuRoC ground truth and returns it in TUM format:
+    [timestamp_sec, tx, ty, tz, qx, qy, qz, qw]
+
+    EuRoC quaternion convention is (q_w, q_x, q_y, q_z); TUM expects (qx, qy, qz, qw).
+    """
+    gt_path = mav0_path / 'state_groundtruth_estimate0' / 'data.csv'
+    df = pd.read_csv(gt_path)
+    df.rename(columns=lambda x: x.strip(), inplace=True)
+
+    ts  = df['#timestamp'].values / 1e9
+    tx  = df['p_RS_R_x [m]'].values
+    ty  = df['p_RS_R_y [m]'].values
+    tz  = df['p_RS_R_z [m]'].values
+    qw  = df['q_RS_w []'].values
+    qx  = df['q_RS_x []'].values
+    qy  = df['q_RS_y []'].values
+    qz  = df['q_RS_z []'].values
+
+    return np.column_stack([ts, tx, ty, tz, qx, qy, qz, qw])
+
 
 class TrajectoryPoint:
     def __init__(self, timestamp, x, y, z, qx, qy, qz, qw):

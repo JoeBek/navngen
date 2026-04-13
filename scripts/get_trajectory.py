@@ -13,6 +13,7 @@ from src.navngen.trajectory import (
     extract_kpts_from_sequence,
     solve_poses_from_frames,
     create_frame_sequence,
+    create_frame_sequence_euroc,
     Solver,
 )
 from src.navngen.export_trajectory import convert_tum, export_trajectory_tum, export_frames
@@ -25,7 +26,10 @@ def main(args):
     # 1. Instantiate Solver
     solver = Solver(args.config_path, config_type=args.config_type)
 
-    initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
+    if args.config_type == 'euroc':
+        initial_frames = create_frame_sequence_euroc(args.input_path)
+    else:
+        initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
     # 2. Extract keypoints and create partial frames
     partial_frames = extract_kpts_from_sequence(initial_frames)
 

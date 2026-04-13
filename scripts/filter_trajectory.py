@@ -13,6 +13,7 @@ from src.navngen.trajectory import (
     extract_kpts_from_sequence,
     solve_poses_from_frames,
     create_frame_sequence,
+    create_frame_sequence_euroc,
     Solver,
 )
 from src.navngen.filter import filter_segmentation, filter_depth
@@ -52,7 +53,10 @@ def main(args):
 
     # 2. Extract keypoints and create partial frames
 
-    initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
+    if args.config_type == 'euroc':
+        initial_frames = create_frame_sequence_euroc(args.input_path)
+    else:
+        initial_frames = create_frame_sequence(args.input_path, args.image_dirname)
     # 2. Extract keypoints and create partial frames
     partial_frames = extract_kpts_from_sequence(initial_frames)
 
@@ -66,10 +70,10 @@ def main(args):
                 f"and number of masks ({len(mask_files)})."
             )
 
-        masks = [np.load(f) for f in tqdm(mask_files, desc="Loading masks")]
         filter_ids = [int(fid) for fid in args.filter_ids.split(',')]
         print(f"Filtering frames with class IDs: {filter_ids}")
-        filtered_frames = filter_segmentation(partial_frames, masks, filter_ids)
+        mask_gen = (np.load(f) for f in tqdm(mask_files, desc="Filtering segmentation"))
+        filtered_frames = filter_segmentation(partial_frames, mask_gen, filter_ids)
 
     elif args.filter_mode == 'depth':
         # Load depth maps
@@ -80,27 +84,28 @@ def main(args):
                 f"and number of depth maps ({len(depth_files)})."
             )
 
-        depth_maps = [np.load(f) for f in tqdm(depth_files, desc="Loading depth maps")]
-
-        # Assign depth to keypoints
-        for frame, depth_map in zip(partial_frames, depth_maps):
+        # Assign depth to keypoints one file at a time to avoid loading all depth maps at once
+        for frame, depth_file in tqdm(zip(partial_frames, depth_files), desc="Assigning depths",
+                                      total=len(depth_files)):
             if frame.kpts is not None:
+                depth_map = np.load(depth_file)
                 frame.kpt_depth = get_kpt_depth(frame.kpts.cpu(), depth_map).to(frame.kpts.device)
 
         print(f"Filtering frames with depth thresholds: tl={args.tl}, th={args.th}")
         filtered_frames = filter_depth(partial_frames, args.normalize, tl=args.tl, th=args.th)
 
     elif args.filter_mode == 'both':
-        # --- depth pass ---
+        # --- depth pass: load one depth map at a time ---
         depth_files = sorted(Path(args.depth_mask_path).glob('*.npy'))
         if len(depth_files) != len(partial_frames):
             raise ValueError(
                 f"Mismatch between number of frames ({len(partial_frames)}) "
                 f"and number of depth maps ({len(depth_files)})."
             )
-        depth_maps = [np.load(f) for f in tqdm(depth_files, desc="Loading depth maps")]
-        for frame, depth_map in zip(partial_frames, depth_maps):
+        for frame, depth_file in tqdm(zip(partial_frames, depth_files), desc="Assigning depths",
+                                      total=len(depth_files)):
             if frame.kpts is not None:
+                depth_map = np.load(depth_file)
                 frame.kpt_depth = get_kpt_depth(frame.kpts.cpu(), depth_map).to(frame.kpts.device)
         print(f"Filtering frames with depth thresholds: tl={args.tl}, th={args.th}")
         depth_filtered = filter_depth(partial_frames, args.normalize, tl=args.tl, th=args.th)
@@ -112,10 +117,10 @@ def main(args):
                 f"Mismatch between number of frames ({len(depth_filtered)}) "
                 f"and number of seg masks ({len(seg_files)})."
             )
-        seg_masks = [np.load(f) for f in tqdm(seg_files, desc="Loading seg masks")]
         filter_ids = [int(fid) for fid in args.filter_ids.split(',')]
         print(f"Filtering frames with class IDs: {filter_ids}")
-        filtered_frames = filter_segmentation(depth_filtered, seg_masks, filter_ids)
+        seg_gen = (np.load(f) for f in tqdm(seg_files, desc="Filtering segmentation"))
+        filtered_frames = filter_segmentation(depth_filtered, seg_gen, filter_ids)
 
     else:
         raise ValueError(f"Unknown filter mode: {args.filter_mode}")

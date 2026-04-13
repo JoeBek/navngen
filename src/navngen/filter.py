@@ -50,21 +50,21 @@ def filter_depth(frames: Sequence[Frame], normalize=False, tl=0.0, th=0.0) -> Se
     return frames
 
 
-def filter_segmentation(frames: Sequence[Frame], masks: Sequence[np.ndarray], filter_ids: Sequence[int]) -> Sequence[Frame]:
+def filter_segmentation(frames: Sequence[Frame], masks, filter_ids: Sequence[int]) -> Sequence[Frame]:
     """
     Filters out keypoints based on segmentation masks.
     Keeps keypoints that fall into specified mask classes.
 
     :param frames: A sequence of Frame objects to be filtered.
     :type frames: Sequence[Frame]
-    :param masks: A sequence of segmentation masks (H, W), one for each frame.
-    :type masks: Sequence[np.ndarray]
+    :param masks: An iterable of segmentation masks (H, W), one for each frame.
+                  May be a list or a lazy generator to reduce peak RAM usage.
     :param filter_ids: A sequence of class IDs to keep.
     :type filter_ids: Sequence[int]
     :return: The sequence of filtered Frame objects.
     :rtype: Sequence[Frame]
     """
-    if len(frames) != len(masks):
+    if hasattr(masks, '__len__') and len(frames) != len(masks):
         raise ValueError("Number of frames and masks must be equal.")
 
     for frame, mask_img in zip(frames, masks):
