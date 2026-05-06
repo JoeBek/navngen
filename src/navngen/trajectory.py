@@ -131,26 +131,40 @@ def extract_kpts_from_sequence(frames: Sequence[Frame]) -> Sequence[Frame]:
 
     return frames
 
-def solve_poses_from_frames(frames: Sequence[Frame], solver: Solver) -> Sequence[Frame]:
+def solve_poses_from_frames(frames: Sequence[Frame], solver: Solver,
+                            viewer=None) -> Sequence[Frame]:
     """
-    Takes a sequence of partial frames with keypoints, matches them, 
+    Takes a sequence of partial frames with keypoints, matches them,
     and solves for the full trajectory.
+
+    Args:
+        frames:  Sequence of Frame objects with .kpts and .features populated.
+        solver:  Solver instance holding camera intrinsics and RANSAC options.
+        viewer:  Optional Viewer instance.  When provided, each processed frame
+                 and its triangulated points are pushed to the viewer in real time.
     """
+    from .triangulate import triangulate_frame_pair, K_from_camera
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     matcher = LightGlue(features="superpoint").eval().to(device)
 
     if not frames:
         return []
 
+    K = K_from_camera(solver.camera)
+
     r0 = np.eye(3)
     t0 = np.zeros(3)
-    
+
     frames[0].pose = (r0, t0)
-    
+
     trajectories = {frames[0].timestamp: (r0, t0)}
-    
+
     # The first frame is already "processed" in a sense.
     processed_frames = [frames[0]]
+
+    if viewer is not None:
+        viewer.update(frames[0])
 
     for i in tqdm(range(1, len(frames)), desc="Solving poses"):
         frame_last = frames[i-1]
@@ -172,10 +186,10 @@ def solve_poses_from_frames(frames: Sequence[Frame], solver: Solver) -> Sequence
 
         m_kpts0 = kpts0[matches[..., 0]].numpy()
         m_kpts1 = kpts1[matches[..., 1]].numpy()
-        
+
         transform, info = solver.solve_relative_pose(m_kpts0, m_kpts1)
         r, t = transform.R, transform.t
-        
+
         rl, tl = trajectories[frame_last.timestamp]
         rn, tn = compose_with_unit_direction(rl, tl, r, t)
 
@@ -185,8 +199,12 @@ def solve_poses_from_frames(frames: Sequence[Frame], solver: Solver) -> Sequence
         frame_curr.pose = (rn, tn)
         frame_curr.matches = matches
         frame_curr.info = info
-        
+
         processed_frames.append(frame_curr)
+
+        if viewer is not None:
+            pts_3d = triangulate_frame_pair(frame_last, frame_curr, K)
+            viewer.update(frame_curr, pts_3d)
 
     return processed_frames
 

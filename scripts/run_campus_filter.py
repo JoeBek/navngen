@@ -120,6 +120,8 @@ def main():
                         help="Directory for per-trial staging dirs.")
     parser.add_argument("--config_path", type=Path, default=default_config,
                         help="Path to filter_config.yaml for depth/seg thresholds.")
+    parser.add_argument("--pickle_dir", type=Path, default=None,
+                        help="If set, save processed frames as .pkl.gz files in this directory.")
     args = parser.parse_args()
 
     try:
@@ -131,6 +133,8 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.staging_dir.mkdir(parents=True, exist_ok=True)
+    if args.pickle_dir:
+        args.pickle_dir.mkdir(parents=True, exist_ok=True)
 
     if args.trials:
         trial_dirs = sorted([args.trials_dir / t for t in args.trials])
@@ -160,6 +164,10 @@ def main():
             "--output_path",   str(output_traj),
         ]
 
+        if args.pickle_dir:
+            pickle_path = args.pickle_dir / f"campus_{name}_{args.filter_mode}_frames.pkl.gz"
+            command.extend(["--pickle_path", str(pickle_path)])
+
         if args.filter_mode == 'depth':
             depth_cfg = config.get('depth', {})
             mask_path = staging_dir / 'depth_masks'
@@ -167,7 +175,7 @@ def main():
                 "depth",
                 "--mask-path", str(mask_path),
                 "--tl", str(depth_cfg.get('tl', 0.0)),
-                "--th", str(depth_cfg.get('th', 50.0)),
+                "--th", str(depth_cfg.get('th', 0.5)),
             ])
             if depth_cfg.get('normalize', False):
                 command.append("--normalize")
@@ -189,10 +197,10 @@ def main():
                 "--depth-mask-path", str(staging_dir / 'depth_masks'),
                 "--seg-mask-path",   str(staging_dir / 'seg_masks'),
                 "--tl",              str(depth_cfg.get('tl', 0.0)),
-                "--th",              str(depth_cfg.get('th', 50.0)),
+                "--th",              str(depth_cfg.get('th', 0.5)),
                 "--filter-ids",      str(seg_cfg.get('filter_ids', '0,1,2,3,4,5,7,8,9')),
             ])
-            if depth_cfg.get('normalize', False):
+            if depth_cfg.get('normalize', True):
                 command.append("--normalize")
 
         tqdm.write(f"----- {name} ({args.filter_mode}) -----")

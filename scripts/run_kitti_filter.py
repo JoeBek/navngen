@@ -56,7 +56,8 @@ def main():
         # --- Construct common paths ---
         sequence_path = args.kitti_data_path / 'color' / 'dataset' / 'sequences' / trial_str
         calib_path = sequence_path / 'calib.txt'
-        output_traj_path = args.output_dir / f"kitti_{trial_str}_{args.filter_mode}_filtered_traj.txt"
+        output_traj_path   = args.output_dir / f"kitti_{trial_str}_{args.filter_mode}_filtered_traj.txt"
+        output_pickle_path = args.output_dir / f"kitti_{trial_str}_{args.filter_mode}_frames.pkl.gz"
 
         # --- Check if necessary common paths exist ---
         if not sequence_path.exists() or not calib_path.exists():
@@ -69,6 +70,7 @@ def main():
             "--input-path", str(sequence_path),
             "--config_path", str(calib_path),
             "--output_path", str(output_traj_path),
+            "--pickle_path", str(output_pickle_path),
         ]
 
         if args.filter_mode == 'depth':

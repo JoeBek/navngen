@@ -78,6 +78,10 @@ def load_frames(load_path: Path) -> Sequence[Frame]:
     Returns:
         Sequence[Frame]: The loaded sequence of Frame objects.
     """
+    import sys
+    import src.navngen.frame as _frame_mod
+    sys.modules.setdefault('navngen.frame', _frame_mod)
+    sys.modules.setdefault('frame', _frame_mod)
     with gzip.open(load_path, 'rb') as f:
         frames = pickle.load(f)
     return frames
