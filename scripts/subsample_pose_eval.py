@@ -85,7 +85,7 @@ def build_tum_frame_map(gt_entries, frames, frame_range, ts_scale):
 # ─────────────────────────── relative pose helpers ───────────────────────────
 
 def kitti_relative_pose(poses, i, j):
-    rel = np.linalg.inv(poses[i]) @ poses[j]
+    rel = np.linalg.inv(poses[j]) @ poses[i]
     return rel[:3, :3], rel[:3, 3]
 
 
