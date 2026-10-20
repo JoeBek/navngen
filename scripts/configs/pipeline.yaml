@@ -1,0 +1,50 @@
+# Modular Docker pipeline config (run with scripts/run_pipeline.py).
+# All host paths must be absolute.
+
+input:
+  images: /home/joe/vt/research/glue/navngen/assets/staging/airport/images
+  times:  /home/joe/vt/research/glue/navngen/assets/staging/airport/times.txt  # optional; backend timestamps
+
+work_dir: /home/joe/vt/research/glue/navngen/assets/staging/airport/_pipeline
+
+calib:
+  navngen_yaml: /home/joe/vt/research/glue/navngen/scripts/configs/camera_forward.yaml
+  navngen_type: surfnav                 # surfnav | kitti | euroc
+
+hf_token: /home/joe/vt/research/glue/depth/.hf_token   # required by the depth stage
+hf_cache: /home/joe/vt/research/glue/navngen/assets/staging/airport/_pipeline/hf_cache
+
+images_on_gpu: true                      # SuperPoint/LightGlue use --gpus all
+
+stages:
+  depth:
+    enabled: true
+    image: unidepth-getdepth:latest
+  segmentation:
+    enabled: true
+    image: mmsegmentation:latest
+    gpu: false            # mmseg image is cu118; Blackwell needs CPU here
+    driver: /home/joe/vt/research/glue/segment/get_segmentation.py
+  superpoint:
+    enabled: true
+    image: navngen-superpoint
+    max_keypoints: 2048
+  filter:
+    enabled: true
+    image: navngen-filter
+    mode: both                           # depth | seg | both
+    tl: 0.0
+    th: 0.5
+    normalize: true
+    filter_ids: "0,1,2,3,4,5,7,8,9"       # Cityscapes class IDs to KEEP
+  lightglue:
+    enabled: true
+    image: navngen-lightglue
+  backend:
+    enabled: true
+    image: navngen-backend
+    scale_mode: unit                     # unit | metric (metric uses depth_masks)
+    scale: 1.0
+
+scheduling:
+  gpu_serialize: true                    # run GPU producers one at a time

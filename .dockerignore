@@ -1,0 +1,13 @@
+# Datasets / outputs are mounted at runtime, not baked into the image.
+assets/
+models/
+out.png
+show_rot.png
+*.mp4
+
+# VCS / editor / caches
+.git/
+.vscode/
+__pycache__/
+*.pyc
+.python-version

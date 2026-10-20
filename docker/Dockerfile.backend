@@ -1,0 +1,25 @@
+# Trajectory backend image.
+# Runs scripts/run_trajectory_backend.py as the entrypoint: consumes LightGlue
+# match .npz files (from run_lightglue.py), estimates relative poses with
+# poselib, and exports an absolute trajectory in TUM format.
+#
+# Deliberately lean: no torch / lightglue / opencv. Only numpy, scipy, pyyaml
+# and poselib are needed, so this image is ~300 MB instead of ~13 GB.
+FROM python:3.11-slim
+
+WORKDIR /navngen
+
+# Backend-only dependencies (poselib ships a manylinux wheel, so no build tools).
+COPY docker/requirements.backend.txt .
+RUN pip install --no-cache-dir -r requirements.backend.txt
+
+# Copy the application source. The backend imports src/navngen/camera.py
+# directly (via importlib) to avoid pulling in the heavy navngen package.
+COPY . .
+
+# Arguments passed to `docker run` are forwarded to the script, e.g.:
+#   docker run --rm -v /data:/data navngen-backend \
+#     --matches_path /data/matches --config_path scripts/configs/camera_forward.yaml \
+#     --config_type surfnav --times_path /data/airport/times.txt \
+#     --output_path /data/out.tum
+ENTRYPOINT [ "python", "scripts/run_trajectory_backend.py" ]

@@ -96,6 +96,34 @@ def overlay_heatmap(ax, rgb, heatmap, alpha, cmap_name, title, kpts_all=None):
     ax.axis("off")
 
 
+def prob_normalize(hmap):
+    """Normalize a heatmap to a probability distribution (sums to 1).
+    Unlike max-normalization, this preserves relative frequency so that
+    subtracting two prob-normalized maps gives true enrichment/depletion."""
+    s = hmap.sum()
+    return hmap / s if s > 0 else hmap
+
+
+def diff_maps(hmap_top, hmap_all):
+    """Return prob_normalize(top) - prob_normalize(all), scaled to [-1, 1]
+    by the peak absolute deviation so the colormap always fills."""
+    d = prob_normalize(hmap_top) - prob_normalize(hmap_all)
+    peak = np.abs(d).max()
+    return d / peak if peak > 0 else d
+
+
+def overlay_diff(ax, rgb, diff, alpha, title):
+    """diff: (H, W) float in [-1, 1].  Red = over-represented in top trials,
+    blue = under-represented.  Opacity proportional to |diff|."""
+    ax.imshow(rgb)
+    norm = plt.Normalize(vmin=-1, vmax=1)
+    rgba = cm.get_cmap("RdBu_r")(norm(diff))
+    rgba[..., 3] = np.abs(diff) * alpha
+    ax.imshow(rgba)
+    ax.set_title(title)
+    ax.axis("off")
+
+
 # ─────────────────────────── GT helpers (mirrors subsample.py) ───────────────
 
 def load_gt_kitti(path):
@@ -198,6 +226,9 @@ def build_parser():
     p.add_argument("--metric",      default="combined",
                    choices=["translation", "rotation", "combined"],
                    help="Error metric used to rank trials (default: combined)")
+    p.add_argument("--diff",        action="store_true",
+                   help="Add a difference map: normalize(top_T) - normalize(all_K). "
+                        "Requires --top.")
     return p
 
 
@@ -208,6 +239,9 @@ def main():
         if args.gt is None or args.config_path is None:
             print("Error: --top requires both --gt and --config_path")
             sys.exit(1)
+    if args.diff and args.top is None:
+        print("Error: --diff requires --top")
+        sys.exit(1)
 
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -273,7 +307,7 @@ def main():
 
     # ── run K trials ──────────────────────────────────────────────────────────
     # Each trial stores its keypoint coords; if --top is set, also stores error.
-    trials = []   # list of (err_or_None, coords0, coords1)
+    all_trials = []   # list of (err_or_None, coords0, coords1) — full K
 
     for _ in range(args.K):
         idx = np.random.choice(n_matches, size=n_sample, replace=False)
@@ -289,11 +323,12 @@ def main():
             except Exception:
                 err = float("nan")
 
-        trials.append((err, c0, c1))
+        all_trials.append((err, c0, c1))
 
     # ── filter to top-T trials if requested ───────────────────────────────────
+    display_trials = all_trials
     if args.top is not None:
-        valid = [(e, c0, c1) for e, c0, c1 in trials if np.isfinite(e)]
+        valid = [(e, c0, c1) for e, c0, c1 in all_trials if np.isfinite(e)]
         if not valid:
             print("Error: all trials failed pose estimation — cannot rank by error")
             sys.exit(1)
@@ -301,45 +336,67 @@ def main():
         top_t = min(args.top, len(valid))
         if top_t < args.top:
             print(f"Warning: only {top_t} trials succeeded (requested --top {args.top})")
-        trials = valid[:top_t]
-        best_err  = trials[0][0]
-        worst_err = trials[-1][0]
+        display_trials = valid[:top_t]
+        best_err  = display_trials[0][0]
+        worst_err = display_trials[-1][0]
         print(f"Keeping top {top_t} trials by {args.metric} error  "
               f"(best={best_err:.3f}°  worst={worst_err:.3f}°)")
 
-    selected0 = np.concatenate([c0 for _, c0, _ in trials], axis=0)
+    selected0 = np.concatenate([c0 for _, c0, _ in display_trials], axis=0)
 
     # Load image
     img0 = image_tensor_to_rgb(load_image(f_prev.path))
     h0, w0 = img0.shape[:2]
 
-    hmap0 = build_heatmap(selected0, h0, w0, args.sigma)
+    hmap_top = build_heatmap(selected0, h0, w0, args.sigma)
 
     # ── plot ──────────────────────────────────────────────────────────────────
-    n_used = len(trials)
+    n_used = len(display_trials)
     if args.top is not None:
         filter_str = f"top {n_used} of {args.K} trials by {args.metric} error"
     else:
         filter_str = f"{args.K} trials (all)"
 
-    fig, ax0 = plt.subplots(1, 1, figsize=(8, 6))
-    fig.suptitle(
-        f"Keypoint subsample heatmap  —  N={args.N}, {filter_str}\n"
-        f"frame {i}  |  {n_matches} total matches",
-        fontsize=11,
-    )
-
     kpts_all0 = kpts0[matches[:, 0]] if args.show_kpts else None
 
-    overlay_heatmap(ax0, img0, hmap0, args.alpha, args.cmap,
-                    f"Frame {i}", kpts_all0)
+    if args.diff:
+        all_coords0  = np.concatenate([c0 for _, c0, _ in all_trials], axis=0)
+        hmap_all     = build_heatmap(all_coords0, h0, w0, args.sigma)
+        diff         = diff_maps(hmap_top, hmap_all)   # both already in [0, 1]
 
-    # Colourbar
-    sm = plt.cm.ScalarMappable(cmap=args.cmap,
-                               norm=plt.Normalize(vmin=0, vmax=1))
-    sm.set_array([])
-    fig.colorbar(sm, ax=ax0, fraction=0.025, pad=0.02,
-                 label="relative selection frequency")
+        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(15, 6))
+        fig.suptitle(
+            f"Keypoint heatmap & difference map  —  N={args.N}, {filter_str}\n"
+            f"frame {i}  |  {n_matches} total matches",
+            fontsize=11,
+        )
+        overlay_heatmap(ax0, img0, hmap_top, args.alpha, args.cmap,
+                        f"Top-{n_used} heatmap", kpts_all0)
+        sm0 = plt.cm.ScalarMappable(cmap=args.cmap, norm=plt.Normalize(vmin=0, vmax=1))
+        sm0.set_array([])
+        fig.colorbar(sm0, ax=ax0, fraction=0.025, pad=0.02,
+                     label="relative selection frequency")
+
+        overlay_diff(ax1, img0, diff, args.alpha,
+                     f"Difference  (top−all)  —  red=over, blue=under")
+        sm1 = plt.cm.ScalarMappable(cmap="RdBu_r", norm=plt.Normalize(vmin=-1, vmax=1))
+        sm1.set_array([])
+        fig.colorbar(sm1, ax=ax1, fraction=0.025, pad=0.02,
+                     label="top − all  (normalised)")
+    else:
+        fig, ax0 = plt.subplots(1, 1, figsize=(8, 6))
+        fig.suptitle(
+            f"Keypoint subsample heatmap  —  N={args.N}, {filter_str}\n"
+            f"frame {i}  |  {n_matches} total matches",
+            fontsize=11,
+        )
+        overlay_heatmap(ax0, img0, hmap_top, args.alpha, args.cmap,
+                        f"Frame {i}", kpts_all0)
+        sm = plt.cm.ScalarMappable(cmap=args.cmap,
+                                   norm=plt.Normalize(vmin=0, vmax=1))
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax0, fraction=0.025, pad=0.02,
+                     label="relative selection frequency")
 
     plt.tight_layout()
 

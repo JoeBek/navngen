@@ -1,0 +1,43 @@
+# LightGlue matching image.
+# Runs scripts/run_lightglue.py as the entrypoint: matches consecutive frames
+# with LightGlue and persists the matches as .npz per image pair.
+FROM python:3.11-slim
+
+WORKDIR /navngen
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    cmake \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the requirements file and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN git clone https://github.com/cvg/LightGlue.git /navngen/LightGlue
+
+WORKDIR /navngen/LightGlue
+RUN pip install --no-cache-dir -r requirements.txt || true
+RUN pip install --no-cache-dir .
+
+WORKDIR /navngen
+
+# Pre-download the SuperPoint + LightGlue weights into the image so runs need
+# no network access (torch.hub cache lives at /root/.cache/torch).
+RUN python -c "from lightglue import SuperPoint, LightGlue; \
+    SuperPoint(max_num_keypoints=256).eval(); \
+    LightGlue(features='superpoint').eval()"
+
+# Copy the rest of the application's source code
+COPY . .
+
+# Arguments passed to `docker run` are forwarded to the script, e.g.:
+#   docker run --rm -v /data:/data navngen-lightglue \
+#     --features_path /data/superpoint --output_path /data/matches
+#   docker run --rm -v /data:/data navngen-lightglue \
+#     --input_path /data/images --output_path /data/matches
+ENTRYPOINT [ "python", "scripts/run_lightglue.py" ]

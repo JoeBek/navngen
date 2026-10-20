@@ -1,0 +1,20 @@
+# Keypoint-filtering stage image.
+# Runs scripts/run_filter.py as the entrypoint: prunes SuperPoint keypoints by
+# depth and/or segmentation masks and writes filtered features for LightGlue.
+#
+# Numpy-only, so this image is tiny (~150 MB) -- no torch/lightglue/opencv.
+FROM python:3.11-slim
+
+WORKDIR /navngen
+
+COPY docker/requirements.filter.txt .
+RUN pip install --no-cache-dir -r requirements.filter.txt
+
+COPY . .
+
+# Arguments passed to `docker run` are forwarded to the script, e.g.:
+#   docker run --rm -v /data:/data navngen-filter \
+#     --features_path /data/superpoint --output_path /data/filtered \
+#     --mode both --depth_path /data/depth_masks --seg_path /data/seg_masks \
+#     --tl 0.0 --th 0.5 --normalize
+ENTRYPOINT [ "python", "scripts/run_filter.py" ]
